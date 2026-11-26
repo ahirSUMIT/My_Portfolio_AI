@@ -4,34 +4,31 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from groq import Groq
 from pydantic import BaseModel
 from pypdf import PdfReader
 
 load_dotenv()
-my_api_key=os.getenv("GROQ_API_KEY")
 
-if not my_api_key:
-    raise ValueError("API key Not Found")
+client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
+)
 
-client=Groq(api_key=my_api_key)
 model = "openai/gpt-oss-120b"
+app = FastAPI()
 
-from fastapi.middleware.cors import CORSMiddleware
-app=FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173"
-    ],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-#parsing Resume
 
+# parse resume
 class Experience(BaseModel):
     company: str | None = None
     role: str | None = None
@@ -51,47 +48,46 @@ class Resume(BaseModel):
     education: list[str] = []
     projects: list[str] = []
     certifications: list[str] = []
-resume_schema = json.dumps(Resume.model_json_schema(), indent=2)
+
+resume_schema = Resume.model_json_schema()
 
 class ChatRequest(BaseModel):
     question: str
 
+
+def build_system_prompt(resume: Resume):
+    return f"""
+You are an AI assistant representing a job candidate.
+
+Below is everything you know about the candidate.
+
+{resume.model_dump_json(indent=2)}
+
+Rules:
+
+1. Answer only using this information.
+
+2. Never hallucinate.
+
+3. If information is unavailable, say honestly that you don't have that detail.
+
+4. Be professional.
+
+5. Answer as if HR is interviewing this candidate.
+
+6. Speak in the first person, as the candidate.
+
+7. Keep answers to 80-100 words, in short sentences and simple English.
+
+8. Answer the exact question first. Mention only the most relevant skills or projects.
+
+9. Do not use headings, tables, or long bullet lists.
+"""
+
+
 def ask_candidate(question: str, resume: Resume):
 
-    system_prompt = f"""
-    You are an AI assistant representing a job candidate.
-
-    Below is everything you know about the candidate.
-
-    {resume.model_dump_json(indent=2)}
-
-    Rules:
-
-    1. Answer only using this information.
-
-    2. Never hallucinate.
-
-    3. If information is unavailable,
-    say
-
-    "I don't have enough information to answer that."
-
-    4. Be professional.
-
-    5. Answer as if HR is interviewing this candidate.
-
-    6.
-        Use Markdown formatting whenever it improves readability.
-
-        Examples:
-
-        - Bullet lists
-        - Numbered lists
-        - Headings
-        - Tables
-
-        Never overuse markdown.
-    """
+    system_prompt = build_system_prompt(resume)
 
     response = client.chat.completions.create(
 
@@ -100,48 +96,25 @@ def ask_candidate(question: str, resume: Resume):
         messages=[
 
             {
-                "role":"system",
-                "content":system_prompt
+                "role": "system",
+                "content": system_prompt
             },
 
             {
-                "role":"user",
-                "content":question
+                "role": "user",
+                "content": question
             }
 
         ]
+
     )
 
     return response.choices[0].message.content
 
+
 def stream_candidate(question: str, resume: Resume):
 
-    system_prompt = f"""
-    You are an AI assistant representing a job candidate.
-
-    Below is everything you know about the candidate.
-
-    {resume.model_dump_json(indent=2)}
-
-    Rules:
-
-    1. Answer only using this information.
-    2. Never hallucinate.
-    3. If information is unavailable, say:
-    "I don't have enough information to answer that."
-    4. Be professional.
-    5. Answer as if HR is interviewing this candidate.
-    6.Use Markdown formatting whenever it improves readability.
-
-        Examples:
-
-        - Bullet lists
-        - Numbered lists
-        - Headings
-        - Tables
-
-        Never overuse markdown.
-    """
+    system_prompt = build_system_prompt(resume)
 
     stream = client.chat.completions.create(
 
@@ -149,12 +122,12 @@ def stream_candidate(question: str, resume: Resume):
 
         messages=[
             {
-                "role":"system",
-                "content":system_prompt
+                "role": "system",
+                "content": system_prompt
             },
             {
-                "role":"user",
-                "content":question
+                "role": "user",
+                "content": question
             }
         ],
 
@@ -163,14 +136,11 @@ def stream_candidate(question: str, resume: Resume):
     )
 
     for chunk in stream:
-
         if chunk.choices:
-
             delta = chunk.choices[0].delta
-
             if delta and delta.content:
-
                 yield delta.content
+
 
 def parse_resume(resume_text):
     system_prompt = f"""
@@ -210,25 +180,26 @@ def parse_resume(resume_text):
 
     {resume_text}
     """
-    message_system={
-        "role" : "system",
-        "content" : system_prompt
+    message_system = {
+        "role": "system",
+        "content": system_prompt
     }
-    message_user={
-        "role" : "user",
-        "content" : user_prompt
+    message_user = {
+        "role": "user",
+        "content": user_prompt
     }
-    messages=[message_system, message_user]
-    response_format={
+    messages = [message_system, message_user]
+    response_format = {
         "type": "json_object"
     }
-    response=client.chat.completions.create(model=model, messages=messages, response_format=response_format)
+    response = client.chat.completions.create(model=model, messages=messages, response_format=response_format)
     raw_output = response.choices[0].message.content
     data = json.loads(raw_output)
     resume = Resume(**data)
     return resume
 
-#pdf extraction
+
+# pdf extraction
 def read_pdf(file_path: Path):
 
     reader = PdfReader(file_path)
@@ -244,39 +215,35 @@ def read_pdf(file_path: Path):
 
     return text
 
-@app.get("/")
-def home():
-    # resume_text=read_pdf(Path("Sumit_Raj.pdf"))
-    # resume=parse_resume(resume_text)
-    # print(resume.model_dump_json(indent=2))
-    return {
-        "message": "HireMeAI Backend Running 🚀!"
-    }
 
 resume_cache: Resume | None = None
 
 @app.on_event("startup")
 def load_resume():
     global resume_cache
-    resume_text = read_pdf(Path("Sumit_Raj.pdf"))
+    resume_text = read_pdf(Path("Sumit_Raj_.pdf"))
     resume_cache = parse_resume(resume_text)
     print("Resume loaded and parsed ✅")
 
+
+@app.get("/")
+def home():
+    return {
+        "message": "HireMeAI Backend Running 🚀!"
+    }
+
+
 @app.post("/chat")
-async def chat(request: ChatRequest):
+def chat(request: ChatRequest):
     answer = ask_candidate(request.question, resume_cache)
-    return {"answer": answer}
+    return {
+        "answer": answer
+    }
+
 
 @app.post("/chat-stream")
-async def chat_stream(request: ChatRequest):
-
+def chat_stream(request: ChatRequest):
     return StreamingResponse(
-
-        stream_candidate(
-            request.question,
-            resume_cache
-        ),
-
+        stream_candidate(request.question, resume_cache),
         media_type="text/plain"
-
     )

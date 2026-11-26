@@ -1,17 +1,23 @@
-// SuggestedQuestions.jsx - Quick prompt suggestion cards
+// SuggestedQuestions.jsx - Recruiter prompt suggestion cards generated from current resume
 import React from 'react';
 
-const SUGGESTIONS = [
-  { id: 'ai-journey', icon: '💡', title: 'Tell me about yourself' },
-  { id: 'projects', icon: '💡', title: 'Tell me about projects' },
-  { id: 'why-hire', icon: '💡', title: 'Why hire Sumit?' },
-  { id: 'resume', icon: '💡', title: 'Resume summary' }
-];
+export default function SuggestedQuestions({ projects = [], onSelectQuestion }) {
+  const projectSuggestions = projects.slice(0, 3).map((proj, idx) => ({
+    id: `proj-${idx}`,
+    icon: idx === 0 ? '🎥' : idx === 1 ? '🤖' : '📄',
+    title: proj.askPrompt || `Explain your ${proj.name} project`
+  }));
 
-export default function SuggestedQuestions({ onSelectQuestion }) {
+  const suggestions = [
+    { id: 'about', icon: '👋', title: 'Tell me about yourself' },
+    ...projectSuggestions,
+    { id: 'aiml', icon: '🎓', title: 'What have you learned in your AI/ML program?' },
+    { id: 'why-hire', icon: '🎯', title: 'Why should we hire you?' }
+  ];
+
   return (
     <div className="suggested-questions-grid">
-      {SUGGESTIONS.map((item) => (
+      {suggestions.map((item) => (
         <button
           key={item.id}
           className="suggestion-card"

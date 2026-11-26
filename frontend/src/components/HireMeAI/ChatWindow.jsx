@@ -1,6 +1,7 @@
 // ChatWindow.jsx - Complete HireMeAI window assembly
-import React, { useState, useRef } from 'react';
-import { Bot } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { RotateCcw, Download } from 'lucide-react';
+import { HireMeLogo } from '../Icons';
 import ChatSidebar from './ChatSidebar';
 import WelcomeScreen from './WelcomeScreen';
 import ChatArea from './ChatArea';
@@ -8,11 +9,20 @@ import ChatInput from './ChatInput';
 import { sendMessageStream } from './api';
 import './chat.css';
 
-export default function ChatWindow({ onClose, onMinimize, onMaximize }) {
+export default function ChatWindow({
+  resumeProfile,
+  onClose,
+  onMinimize,
+  onMaximize,
+  onOpenProjects,
+  onOpenResume,
+  initialQuestion,
+  onClearInitialQuestion
+}) {
   const [sessions, setSessions] = useState([
     {
       id: 'session-1',
-      title: 'New Conversation',
+      title: 'Recruiter Interview',
       messages: []
     }
   ]);
@@ -22,7 +32,6 @@ export default function ChatWindow({ onClose, onMinimize, onMaximize }) {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
 
-  // Create new chat session
   const handleNewChat = () => {
     if (isStreaming) handleStopStream();
     const newId = `session-${Date.now()}`;
@@ -35,13 +44,22 @@ export default function ChatWindow({ onClose, onMinimize, onMaximize }) {
     setActiveSessionId(newId);
   };
 
-  // Select session from history
+  const handleClearCurrentChat = () => {
+    if (isStreaming) handleStopStream();
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === activeSessionId
+          ? { ...s, title: 'New Conversation', messages: [] }
+          : s
+      )
+    );
+  };
+
   const handleSelectSession = (id) => {
     if (isStreaming) handleStopStream();
     setActiveSessionId(id);
   };
 
-  // Delete session
   const handleDeleteSession = (id) => {
     if (isStreaming && id === activeSessionId) handleStopStream();
     const updated = sessions.filter((s) => s.id !== id);
@@ -55,7 +73,6 @@ export default function ChatWindow({ onClose, onMinimize, onMaximize }) {
     }
   };
 
-  // Send message & stream response
   const handleSendMessage = async (userText) => {
     if (!userText.trim() || isStreaming) return;
 
@@ -65,10 +82,11 @@ export default function ChatWindow({ onClose, onMinimize, onMaximize }) {
       text: userText
     };
 
-    // Update active session with user message
+    const targetSessionId = activeSessionId;
+
     setSessions((prev) =>
       prev.map((s) => {
-        if (s.id === activeSessionId) {
+        if (s.id === targetSessionId) {
           const isFirstMessage = s.messages.length === 0;
           return {
             ...s,
@@ -86,7 +104,6 @@ export default function ChatWindow({ onClose, onMinimize, onMaximize }) {
     abortControllerRef.current = abortController;
 
     const aiMessageId = `msg-ai-${Date.now()}`;
-    const targetSessionId = activeSessionId;
 
     await sendMessageStream({
       message: userText,
@@ -121,7 +138,7 @@ export default function ChatWindow({ onClose, onMinimize, onMaximize }) {
           })
         );
       },
-      onDone: (fullText) => {
+      onDone: () => {
         setIsStreaming(false);
         abortControllerRef.current = null;
       },
@@ -141,6 +158,14 @@ export default function ChatWindow({ onClose, onMinimize, onMaximize }) {
     setIsStreaming(false);
   };
 
+  // Trigger initial question when launched from a project card
+  useEffect(() => {
+    if (initialQuestion && !isStreaming) {
+      handleSendMessage(initialQuestion);
+      if (onClearInitialQuestion) onClearInitialQuestion();
+    }
+  }, [initialQuestion]);
+
   const hasMessages = activeSession && activeSession.messages.length > 0;
 
   return (
@@ -150,28 +175,59 @@ export default function ChatWindow({ onClose, onMinimize, onMaximize }) {
         <div className="window-dots">
           <span className="dot dot-close" onClick={onClose} title="Close window" />
           <span className="dot dot-minimize" onClick={onMinimize} title="Minimize window" />
-          <span className="dot dot-maximize" onClick={onMaximize} title="Maximize window" />
+          <span className="dot dot-maximize" onClick={onMaximize} title="Maximize / Restore" />
         </div>
+
         <div className="window-title">
-          <Bot size={16} color="#60a5fa" />
-          <span>HireMeAI</span>
+          <HireMeLogo size={18} />
+          <span>HireMeAI — Sumit Raj</span>
+          {isStreaming && <span className="streaming-badge">● Streaming</span>}
         </div>
-        <div style={{ width: '40px' }} /> {/* Spacer */}
+
+        <div className="titlebar-actions">
+          {hasMessages && (
+            <button
+              type="button"
+              className="titlebar-action-btn"
+              onClick={handleClearCurrentChat}
+              title="Clear current conversation"
+            >
+              <RotateCcw size={12} />
+              <span>Clear</span>
+            </button>
+          )}
+          <a
+            href="/resume.pdf"
+            download
+            className="titlebar-action-btn"
+            title="Download Resume.pdf"
+          >
+            <Download size={12} />
+            <span>Resume</span>
+          </a>
+        </div>
       </div>
 
       {/* Main Split Layout */}
       <div className="hireme-main-layout">
         <ChatSidebar
+          skills={resumeProfile?.skills || []}
+          backendConnected={Boolean(resumeProfile?.backendConnected)}
           sessions={sessions}
           activeSessionId={activeSessionId}
           onNewChat={handleNewChat}
           onSelectSession={handleSelectSession}
           onDeleteSession={handleDeleteSession}
+          onOpenProjects={onOpenProjects}
+          onOpenResume={onOpenResume}
         />
 
         <main className="chat-content-pane">
           {!hasMessages ? (
-            <WelcomeScreen onSelectQuestion={handleSendMessage} />
+            <WelcomeScreen
+              projects={resumeProfile?.projects || []}
+              onSelectQuestion={handleSendMessage}
+            />
           ) : (
             <ChatArea
               messages={activeSession.messages}
